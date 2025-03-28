@@ -1,0 +1,7 @@
+[package]
+name = "source_mdl_mats_finder_exe"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+source_mdl_mats_finder = { path = "../source_mdl_mats_finder" }

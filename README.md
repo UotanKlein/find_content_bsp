@@ -1,1 +1,1 @@
-# Find materials for a Source .mdl file.
+# A bit of my dumb code to simplify life.

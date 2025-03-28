@@ -1,0 +1,7 @@
+[package]
+name = "source_bsp_reader_exe"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+source_bsp_reader = { path = "../source_bsp_reader" }
