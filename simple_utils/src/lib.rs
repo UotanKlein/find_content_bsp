@@ -1,7 +1,6 @@
 pub mod utils {
     use std::fs::File;
     use std::io::{Seek, Read, SeekFrom};
-
     pub fn read_exact_from_file(f: &mut File, start: u64, size: usize) -> Option<Vec<u8>> {
         f.seek(SeekFrom::Start(start)).ok()?;
         let mut buf = vec![0; size];

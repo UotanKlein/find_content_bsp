@@ -82,8 +82,6 @@ pub mod finder {
                 },
             };
 
-            println!("VMT: mat_rel: {}, has: {} -----------------------------", vmt_rel_path_str, vmt_path.exists());
-
             let _ = fs::create_dir_all(vmt_tex_new_dir_path);
             let _ = fs::copy(vmt_path, vmt_tex_new_file_path);
         }
@@ -102,8 +100,6 @@ pub mod finder {
                 let vtf_file_path_str = format!("{}.vtf", vtf_val);
                 let vtf_file_path = Path::new(&vtf_file_path_str);
                 let vtf_input_file_path = find_mats_path.join(vtf_file_path);
-
-                println!("VTF: mat_rel: {}, has: {}", vtf_file_path_str, vtf_input_file_path.exists());
 
                 if !vtf_input_file_path.exists() {
                     return;
@@ -158,9 +154,11 @@ pub mod finder {
             let mut f = match File::open(path) {
                 Ok(r) => r,
                 Err(err) => {
+                    eprintln!("1: {}", err);
                     return None;
                 }
             };
+            
             let mut_ptr = &mut f;
             let texture_info_buf = read_exact_from_file(mut_ptr, OFFSET_TO_TEXTURE as u64, I32_SIZE * 4)?;
             let tex_count = i32_from_slice(texture_info_buf.get(0..I32_SIZE)?)?;
@@ -270,8 +268,10 @@ pub mod finder {
                         return None;
                     }
 
-                    let file_name = entry_path.file_name()?.to_str()?;
-                    if !file_name.contains(self_file_stem.to_str()?) {
+                    let file_name = entry_path.file_name()?.to_string_lossy().to_lowercase();
+                    let self_stem = self_file_stem.to_string_lossy().to_lowercase();
+                    
+                    if !file_name.contains(&self_stem) {
                         return None;
                     }
                 

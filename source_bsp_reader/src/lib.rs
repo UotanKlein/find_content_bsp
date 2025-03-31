@@ -22,7 +22,6 @@ pub mod reader {
         four_cc: [u8; I32_SIZE],
     }
 
-    #[derive(Debug)]
     pub struct Vector {
         x: f32,
         y: f32,
@@ -39,7 +38,6 @@ pub mod reader {
         }
     }
 
-    #[derive(Debug)]
     pub struct DModelT {
         mins: Vector,
         maxs: Vector,
@@ -49,7 +47,6 @@ pub mod reader {
         numfaces: i32,
     }    
 
-    #[derive(Debug)]
     pub struct DGameLumpT {
         id: i32,
         flags: u16,
@@ -291,6 +288,7 @@ pub mod reader {
                     prop_static_vec.iter().for_each(|mdl_path_str| {
                         let mdl_path = Path::new(mdl_path_str);
                         let mdl_abs_path = find_path.join(mdl_path);
+
                         match TexturesInfo::new(&mdl_abs_path) {
                             Some(tex_info) => {
                                 tex_info.download(&find_path, &output_path);
