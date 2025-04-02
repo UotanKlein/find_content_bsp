@@ -1,27 +1,29 @@
 pub mod reader {
-    use std::fs;
-    use std::fs::{File};
-    use std::path::{Path, PathBuf};
-    use std::mem::size_of;
+    use std::{fs, fs::File, path::{Path, PathBuf}, mem::size_of, collections::{HashMap, HashSet}};
     use regex::Regex;
-    use std::collections::{HashMap, HashSet};
-    use simple_utils::utils::{u16_from_slice, i16_from_slice, f32_from_slice, i32_from_slice, read_exact_from_file};
+    use simple_utils::utils::{read_exact_from_file, read_segments_from_file, FromSlice};
     use source_mdl_mats_finder::finder::{TexturesInfo, VMTInfo};
 
+    const HEADER_SIZE: usize = size_of::<DHeaderT>();
+    const LUMP_SIZE: usize = size_of::<LumpT>();
+    const DGAME_LUMP_SIZE: usize = size_of::<DGameLumpT>();
+    const DMODEL_SIZE: usize = size_of::<DModelT>();
+    const VECTOR_SIZE: usize = size_of::<Vector>();
     const I32_SIZE: usize = size_of::<i32>();
     const F32_SIZE: usize = size_of::<f32>();
     const U16_SIZE: usize = size_of::<u16>();
-    const I16_SIZE: usize = size_of::<i16>();
     const HEADER_LUMPS: usize = 64;
     const PS_NAME_SIZE: usize = 128;
 
-    struct LumpT {
+    #[derive(Debug)]
+    pub struct LumpT {
         file_ofs: i32,
         file_len: i32,
         version: i32,
         four_cc: [u8; I32_SIZE],
     }
 
+    #[derive(Debug)]
     pub struct Vector {
         x: f32,
         y: f32,
@@ -31,13 +33,14 @@ pub mod reader {
     impl Vector {
         fn from_u8_vec(u8_vec: &[u8]) -> Option<Self> {
             Some(Self {
-                x: f32_from_slice(u8_vec.get(0..F32_SIZE)?)?,
-                y: f32_from_slice(u8_vec.get(F32_SIZE..(F32_SIZE * 2))?)?,
-                z: f32_from_slice(u8_vec.get((F32_SIZE * 2)..(F32_SIZE * 3))?)?,
+                x: f32::from_u8_slice(u8_vec.get(0..F32_SIZE)?)?,
+                y: f32::from_u8_slice(u8_vec.get(F32_SIZE..(F32_SIZE * 2))?)?,
+                z: f32::from_u8_slice(u8_vec.get((F32_SIZE * 2)..(F32_SIZE * 3))?)?,
             })
         }
     }
 
+    #[derive(Debug)]
     pub struct DModelT {
         mins: Vector,
         maxs: Vector,
@@ -47,6 +50,7 @@ pub mod reader {
         numfaces: i32,
     }    
 
+    #[derive(Debug)]
     pub struct DGameLumpT {
         id: i32,
         flags: u16,
@@ -55,6 +59,7 @@ pub mod reader {
         file_len: i32,
     }
 
+    #[derive(Debug)]
     pub struct DHeaderT {
         path: String,
         ident: [u8; I32_SIZE],
@@ -62,12 +67,6 @@ pub mod reader {
         lumps: [LumpT; HEADER_LUMPS],
         map_revision: i32,
     }
-
-    const HEADER_SIZE: usize = size_of::<DHeaderT>();
-    const LUMP_SIZE: usize = size_of::<LumpT>();
-    const DGAME_LUMP_SIZE: usize = size_of::<DGameLumpT>();
-    const DMODEL_SIZE: usize = size_of::<DModelT>();
-    const VECTOR_SIZE: usize = size_of::<Vector>();
 
     fn get_bytes_4(bytes: &[u8], start: usize) -> Option<[u8; I32_SIZE]> {
         bytes[start..start + I32_SIZE].try_into().ok()
@@ -77,9 +76,9 @@ pub mod reader {
         fn new(header_bytes: &[u8], lump_num: usize) -> Option<Self> {
             let offset = I32_SIZE * 2 + lump_num * LUMP_SIZE;
             Some(Self {
-                file_ofs: i32_from_slice(header_bytes.get(offset..(offset + I32_SIZE))?)?,
-                file_len: i32_from_slice(header_bytes.get((offset + I32_SIZE)..(offset + I32_SIZE * 2))?)?,
-                version: i32_from_slice(header_bytes.get((offset + I32_SIZE * 2)..(offset + I32_SIZE * 3))?)?,
+                file_ofs: i32::from_u8_slice(header_bytes.get(offset..(offset + I32_SIZE))?)?,
+                file_len: i32::from_u8_slice(header_bytes.get((offset + I32_SIZE)..(offset + I32_SIZE * 2))?)?,
+                version: i32::from_u8_slice(header_bytes.get((offset + I32_SIZE * 2)..(offset + I32_SIZE * 3))?)?,
                 four_cc: get_bytes_4(header_bytes, offset + I32_SIZE * 3)?,
             })
         }
@@ -93,8 +92,8 @@ pub mod reader {
             Some(Self {
                 path: String::from(path.to_str()?),
                 ident: get_bytes_4(&header_bytes, 0)?,
-                version: i32_from_slice(header_bytes.get(0..I32_SIZE)?)?,
-                map_revision: i32_from_slice(header_bytes.get(map_revision_ofs..(map_revision_ofs + I32_SIZE))?)?,
+                version: i32::from_u8_slice(header_bytes.get(0..I32_SIZE)?)?,
+                map_revision: i32::from_u8_slice(header_bytes.get(map_revision_ofs..(map_revision_ofs + I32_SIZE))?)?,
                 lumps: std::array::from_fn(|i| {
                     match LumpT::new(&header_bytes, i) {
                         Some(r) => r,
@@ -111,16 +110,14 @@ pub mod reader {
             })
         }
 
-        pub fn get_lump(&self, lump_id: usize) -> Option<Vec<u8>> {
-            let lump0_info = &self.lumps[lump_id];
-            let mut f = File::open(&self.path).ok()?;
-            let ofs = lump0_info.file_ofs;
-            let len = lump0_info.file_len;
-            Some(read_exact_from_file(&mut f, ofs as u64, len as usize)?)
+        pub fn get_lump_info(&self, lump_id: usize) -> Option<&LumpT> {
+            Some(&self.lumps[lump_id])
         }
 
         pub fn get_lump_0(&self) -> Option<Vec<HashMap<String, String>>> {
-            let lump0_vec = self.get_lump(0)?;
+            let lump_info = self.get_lump_info(0)?;
+            let mut f = File::open(&self.path).ok()?;
+            let lump0_vec = read_exact_from_file(&mut f, lump_info.file_ofs as u64, lump_info.file_len as usize)?;
             let lump0_str = String::from_utf8(lump0_vec).ok()?;
             let re_braces = Regex::new(r"\{([^}]*)\}").ok()?;
             let re_props = Regex::new(r#""([^"]+)"\s*"([^"]+)""#).ok()?;
@@ -133,59 +130,64 @@ pub mod reader {
         }
 
         pub fn get_lump_14(&self) -> Option<Vec<DModelT>> {
-            let lump45_u8_vec = self.get_lump(14)?;
-            let count = lump45_u8_vec.len() / DMODEL_SIZE;
-            Some((0..count).filter_map(|i| {
-                let data_ofs = DMODEL_SIZE * i;
+            let mut f = File::open(&self.path).ok()?;
+            let lump_info = self.get_lump_info(14)?;
+            let size_vec = vec![VECTOR_SIZE, VECTOR_SIZE, VECTOR_SIZE, I32_SIZE, I32_SIZE, I32_SIZE];
+            Some((0..(lump_info.file_len as usize / DMODEL_SIZE)).filter_map(|i| {
+                let segments = read_segments_from_file(&mut f, (lump_info.file_ofs as usize + DMODEL_SIZE * i) as u64, &size_vec)?;
                 Some(DModelT {
-                    mins: Vector::from_u8_vec(&lump45_u8_vec.get(data_ofs..(data_ofs + VECTOR_SIZE))?)?,
-                    maxs: Vector::from_u8_vec(&lump45_u8_vec.get((data_ofs + VECTOR_SIZE)..(data_ofs + VECTOR_SIZE * 2))?)?,
-                    origin: Vector::from_u8_vec(&lump45_u8_vec.get((data_ofs + VECTOR_SIZE * 2)..(data_ofs + VECTOR_SIZE * 3))?)?,
-                    headnode: i32_from_slice(&lump45_u8_vec.get((data_ofs + VECTOR_SIZE * 3)..(data_ofs + VECTOR_SIZE * 3 + I32_SIZE))?)?,
-                    firstface: i32_from_slice(&lump45_u8_vec.get((data_ofs + VECTOR_SIZE * 3 + I32_SIZE)..(data_ofs + VECTOR_SIZE * 3 + I32_SIZE * 2))?)?,
-                    numfaces: i32_from_slice(&lump45_u8_vec.get((data_ofs + VECTOR_SIZE * 3 + I32_SIZE * 2)..(data_ofs + VECTOR_SIZE * 3 + I32_SIZE * 3))?)?,
+                    mins: Vector::from_u8_vec(&segments[0])?,
+                    maxs: Vector::from_u8_vec(&segments[1])?,
+                    origin: Vector::from_u8_vec(&segments[2])?,
+                    headnode: i32::from_u8_slice(&segments[3])?,
+                    firstface: i32::from_u8_slice(&segments[4])?,
+                    numfaces: i32::from_u8_slice(&segments[5])?,
                 })
             }).collect())
         }
 
         pub fn get_lump_35(&self) -> Option<HashMap<i32, DGameLumpT>> {
-            let lump45_u8_vec = self.get_lump(35)?;
-            let lump_count = i32_from_slice(lump45_u8_vec.get(0..I32_SIZE)?)?;
-            Some((0..lump_count).fold(HashMap::new(), |mut acc, i| {
-                let dgame_lump_start_ofs = I32_SIZE + DGAME_LUMP_SIZE * i as usize;
-                let dgame_lump_id = i32_from_slice(lump45_u8_vec.get(dgame_lump_start_ofs..(dgame_lump_start_ofs + I32_SIZE)).unwrap()).unwrap();
-                let dgame_lump = DGameLumpT { 
-                    id: dgame_lump_id, 
-                    flags: u16_from_slice(lump45_u8_vec.get((dgame_lump_start_ofs + I32_SIZE)..(dgame_lump_start_ofs + I32_SIZE + U16_SIZE)).unwrap()).unwrap(), 
-                    version: u16_from_slice(lump45_u8_vec.get((dgame_lump_start_ofs + I32_SIZE + U16_SIZE)..(dgame_lump_start_ofs + I32_SIZE + U16_SIZE * 2)).unwrap()).unwrap(), 
-                    file_ofs: i32_from_slice(lump45_u8_vec.get((dgame_lump_start_ofs + I32_SIZE + U16_SIZE * 2)..(dgame_lump_start_ofs + I32_SIZE * 2 + U16_SIZE * 2)).unwrap()).unwrap(), 
-                    file_len: i32_from_slice(lump45_u8_vec.get((dgame_lump_start_ofs + I32_SIZE * 2 + U16_SIZE * 2)..(dgame_lump_start_ofs + I32_SIZE * 3 + U16_SIZE * 2)).unwrap()).unwrap(),
-                };
-
-                acc.insert(dgame_lump_id, dgame_lump);
-                acc
-            }))
-        } 
+            let mut f = File::open(&self.path).ok()?;
+            let lump_info = self.get_lump_info(35)?;
+            let lump_ofs = lump_info.file_ofs;
+            let lump_count = i32::from_u8_slice(&read_exact_from_file(&mut f, lump_ofs as u64, I32_SIZE)?)?;
+            let size_vec = vec![I32_SIZE, U16_SIZE, U16_SIZE, I32_SIZE, I32_SIZE];
+            Some((0..lump_count).filter_map(|i| {
+                let segments = read_segments_from_file(&mut f, (lump_ofs as usize + I32_SIZE + DGAME_LUMP_SIZE * i as usize) as u64, &size_vec)?;
+                let id = i32::from_u8_slice(&segments[0])?;
+                Some((
+                    id,
+                    DGameLumpT {
+                        id,
+                        flags: u16::from_u8_slice(&segments[1])?,
+                        version: u16::from_u8_slice(&segments[2])?,
+                        file_ofs: i32::from_u8_slice(&segments[3])?,
+                        file_len: i32::from_u8_slice(&segments[4])?,
+                    },
+                ))
+            }).collect())
+        }
 
         pub fn get_prop_static(&self) -> Option<Vec<String>> {
+            let mut f = File::open(&self.path).ok()?;
             let prop_static_id = 1936749168;
             let lump35 = self.get_lump_35()?;
             let prop_static_info = lump35.get(&prop_static_id)?;
-            let mut f = File::open(&self.path).ok()?;
             let ofs = prop_static_info.file_ofs;
-            let len = prop_static_info.file_len;
-            let prop_static_u8_vec = read_exact_from_file(&mut f, ofs as u64, len as usize)?;
-            let dict_entries = i32_from_slice(prop_static_u8_vec.get(0..I32_SIZE)?)?;
+            let dict_entries = i32::from_u8_slice(&read_exact_from_file(&mut f, ofs as u64, I32_SIZE)?)?;
             Some((0..dict_entries).filter_map(|i| {
-                let prop_static_str_vec = read_exact_from_file(&mut f, (ofs as usize + I32_SIZE + i as usize * PS_NAME_SIZE) as u64, PS_NAME_SIZE)?;
-                Some(String::from_utf8(prop_static_str_vec).ok()?.replace("\0", ""))
+                Some(String::from_utf8(read_exact_from_file(&mut f, (ofs as usize + I32_SIZE + i as usize * PS_NAME_SIZE) as u64, PS_NAME_SIZE)?).ok()?.replace("\0", ""))
             }).collect())
         }
 
         pub fn get_lump_43(&self) -> Option<Vec<String>> {
-            let lump43_u8_vec = self.get_lump(43)?;
-            let lump43_str = String::from_utf8(lump43_u8_vec).ok()?;
-            Some(lump43_str.split("\0").map(|slice_str| format!("{}.vmt", String::from(slice_str).to_lowercase())).collect())
+            let mut f = File::open(&self.path).ok()?;
+            let lump_info = self.get_lump_info(43)?;
+            let lump43_str = String::from_utf8(read_exact_from_file(&mut f, lump_info.file_ofs as u64, lump_info.file_len as usize)?).ok()?;
+            Some(lump43_str
+                .split_terminator('\0')
+                .map(|s| format!("{}.vmt", s.to_lowercase()))
+                .collect())
         }
 
         pub fn download_content(&self, find_path: &Path, output_path: &Path) {

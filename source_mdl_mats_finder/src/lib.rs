@@ -6,15 +6,14 @@ pub mod finder {
     use std::mem::size_of;
     use std::collections::HashMap;
     use regex::Regex;
-    use simple_utils::utils::{ read_exact_from_file, i32_from_slice, null_term_str };
+    use simple_utils::utils::{FromSlice, read_exact_from_file, read_segments_from_file, null_term_str };
 
     const VECTOR_SIZE: usize = 12;
+    const TEX_SIZE: usize = 64;
+    const OFS_TO_TEX: usize = I32_SIZE * 17 + VECTOR_SIZE * 6 + U8_SIZE * 64;
     const I32_SIZE: usize = size_of::<i32>();
     const U8_SIZE: usize = size_of::<u8>();
     const U16_SIZE: usize = size_of::<u16>();
-    const OFFSET_TO_TEXTURE: usize = I32_SIZE * 17 + VECTOR_SIZE * 6 + U8_SIZE * 64;
-    const TEXTURE_SIZE: usize = 64;
-
     fn parse_vmt(vmt_str: &str) -> Option<HashMap<String, String>> {
         let re = Regex::new(r#""([^"]+)"\s*"([^"]+)""#).ok()?;
         Some(
@@ -27,23 +26,23 @@ pub mod finder {
         )
     }
 
-    struct Texture {
+    #[derive(Debug)]
+    pub struct Texture {
         name: String,
     }
 
     impl Texture {
-        fn new(f: &mut File, i: i32, tex_ofs: i32) -> Option<Self> {
-            let offset = (tex_ofs + TEXTURE_SIZE as i32 * i) as u64;
-            let texture_buf = read_exact_from_file(f, offset, TEXTURE_SIZE)?;
-            let name_ofs_u8 = texture_buf.get(0..I32_SIZE)?;
-            let name_offset = i32_from_slice(name_ofs_u8)?;
-
+        pub fn new(f: &mut File, i: i32, tex_ofs: i32) -> Option<Self> {
+            let ofs = (tex_ofs + TEX_SIZE as i32 * i) as u64;
+            let tex_buf = read_exact_from_file(f, ofs, TEX_SIZE)?;
+            let name_ofs = i32::from_u8_slice(tex_buf.get(0..I32_SIZE)?)?;
             Some(Self {
-                name: null_term_str(f, offset + name_offset as u64)?,
+                name: null_term_str(f, ofs + name_ofs as u64)?,
             })
         }
     }
 
+    #[derive(Debug)]
     pub struct VMTInfo {
         path: String,
         rel_path: String,
@@ -143,6 +142,7 @@ pub mod finder {
         }
     }
 
+    #[derive(Debug)]
     pub struct TexturesInfo {
         name: String,
         dirs: Vec<String>,
@@ -154,35 +154,31 @@ pub mod finder {
             let mut f = match File::open(path) {
                 Ok(r) => r,
                 Err(err) => {
-                    eprintln!("1: {}", err);
+                    eprintln!("1: {} {}", err, path.to_str().unwrap());
                     return None;
                 }
             };
-            
             let mut_ptr = &mut f;
-            let texture_info_buf = read_exact_from_file(mut_ptr, OFFSET_TO_TEXTURE as u64, I32_SIZE * 4)?;
-            let tex_count = i32_from_slice(texture_info_buf.get(0..I32_SIZE)?)?;
-            let tex_ofs = i32_from_slice(texture_info_buf.get( I32_SIZE..(I32_SIZE * 2))?)?;
-            let texdir_count   = i32_from_slice(texture_info_buf.get((I32_SIZE * 2)..(I32_SIZE * 3))?)?;
-            let texdir_ofs  = i32_from_slice(texture_info_buf.get((I32_SIZE * 3)..(I32_SIZE * 4))?)?;
-
+            let size_vec = vec![I32_SIZE, I32_SIZE, I32_SIZE, I32_SIZE];
+            let tex_info_segments = read_segments_from_file(mut_ptr, OFS_TO_TEX as u64, &size_vec)?;
+            let tex_count = i32::from_u8_slice(&tex_info_segments[0])?;
+            let tex_ofs = i32::from_u8_slice(&tex_info_segments[1])?;
+            let texdir_count   = i32::from_u8_slice(&tex_info_segments[2])?;
+            let texdir_ofs  = i32::from_u8_slice(&tex_info_segments[3])?;
             let dirs = (0..texdir_count).filter_map(|i| {
                 mut_ptr.seek(SeekFrom::Start((texdir_ofs + (2 * U16_SIZE as i32) * i) as u64)).ok()?;
                 let mut u16_bytes: [u8; 2] = [0; 2];
-                let _ = mut_ptr.read(&mut u16_bytes).ok()?;
+                let _ = mut_ptr.read_exact(&mut u16_bytes).ok()?;
                 let new_ofs = u16::from_le_bytes(u16_bytes);
                 null_term_str(mut_ptr, new_ofs as u64)
             }).collect();
-
             let textures = (0..tex_count).filter_map(|i| {
                 Some(Texture::new(mut_ptr, i, tex_ofs)?.name)
             }).collect();
-
             let name_u8_vec = read_exact_from_file(mut_ptr, (I32_SIZE * 3) as u64, 64)?
                 .into_iter()
                 .filter(|&el| el != 0)
                 .collect();
-
             Some(Self {
                 name: String::from_utf8(name_u8_vec).ok()?,
                 dirs, 
