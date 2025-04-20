@@ -242,64 +242,42 @@ pub mod reader {
                 acc
             }).iter()
             .for_each(|file_path| {
-                let path_ext_osstr = match file_path.extension() {
-                    Some(r) => r,
-                    None => {
-                        return;
-                    },
+                let ext = match file_path.extension().and_then(|ext| ext.to_str()) {
+                    Some(ext) => ext,
+                    None => return,
                 };
-                let path_ext_str = match path_ext_osstr.to_str() {
-                    Some(r) => r,
-                    None => {
-                        return;
-                    },
-                };
-
-                if path_ext_str == "vmt" {
-                    match VMTInfo::new(file_path, &find_mats_path) {
-                    Some(vmt_info) => {
+            
+                match ext {
+                    "vmt" => {
+                        if let Some(vmt_info) = VMTInfo::new(file_path, &find_mats_path) {
                             vmt_info.download_with_def_keys(&find_mats_path, &output_mats_path);
-                        },
-                        None => {},
-                    };
-                } else if path_ext_str == "mdl" {
-                    let mdl_abs_path = find_path.join(file_path);
-
-                    match TexturesInfo::new(&mdl_abs_path) {
-                        Some(tex_info) => {
-                            tex_info.download(&find_path, &output_path);
-                        },
-                        None => {},
+                        }
                     }
-                } else if path_ext_str == "mp3" || path_ext_str == "wav" || path_ext_str == "ogg" {
-                    let sound_input_file_path = find_sound_path.join(file_path);
-                    let sound_output_file_path = output_sound_path.join(file_path);
-
-                    match sound_output_file_path.parent() {
-                        Some(sound_output_parent_dir_path) => {
-                            let _ = fs::create_dir_all(sound_output_parent_dir_path);
-                            let _ = fs::copy(sound_input_file_path, sound_output_file_path);
-                        },
-                        None => {},
-                    };
+                    "mdl" => {
+                        if let Some(tex_info) = TexturesInfo::new(&find_path.join(file_path)) {
+                            tex_info.download(&find_path, &output_path);
+                        }
+                    }
+                    ext if ["mp3", "wav", "ogg"].contains(&ext) => {
+                        let sound_output_file_path = output_sound_path.join(file_path);
+                        if let Some(parent_dir) = sound_output_file_path.parent() {
+                            let _ = fs::create_dir_all(parent_dir);
+                            let _ = fs::copy(find_sound_path.join(file_path), sound_output_file_path);
+                        }
+                    }
+                    _ => {}
                 }
             });
 
-            match self.get_prop_static() {
-                Some(prop_static_vec) => {
-                    prop_static_vec.iter().for_each(|mdl_path_str| {
-                        let mdl_path = Path::new(mdl_path_str);
-                        let mdl_abs_path = find_path.join(mdl_path);
+            if let Some(prop_static_vec) = self.get_prop_static() {
+                prop_static_vec.iter().for_each(|mdl_path_str| {
+                    let mdl_path = Path::new(mdl_path_str);
+                    let mdl_abs_path = find_path.join(mdl_path);
 
-                        match TexturesInfo::new(&mdl_abs_path) {
-                            Some(tex_info) => {
-                                tex_info.download(&find_path, &output_path);
-                            },
-                            None => {},
-                        }
-                    });
-                },
-                None => {},
+                    if let Some(tex_info) = TexturesInfo::new(&mdl_abs_path) {
+                        tex_info.download(&find_path, &output_path);
+                    }
+                });
             }
 
             let lump43 = match self.get_lump_43() {
@@ -309,13 +287,9 @@ pub mod reader {
                 },
             };
             lump43.iter().for_each(|vmt_rel_path_str| {
-                let vmt_rel_path = Path::new(vmt_rel_path_str);
-                match VMTInfo::new(vmt_rel_path, &find_mats_path) {
-                    Some(vmt_info) => {
-                        vmt_info.download_with_def_keys(&find_mats_path, &output_mats_path);
-                    },
-                    None => {},
-                };
+                if let Some(vmt_info) = VMTInfo::new(Path::new(vmt_rel_path_str), &find_mats_path) {
+                    vmt_info.download_with_def_keys(&find_mats_path, &output_mats_path);
+                }
             });
         }
     }

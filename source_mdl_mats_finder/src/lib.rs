@@ -117,18 +117,12 @@ pub mod finder {
                 let _ = fs::copy(vtf_input_file_path, vtf_output_file_path);
             });
 
-            match vmt_data_ptr.get("include") {
-                Some(include_path_str) => {
-                    let include_path: PathBuf = Path::new(&include_path_str).iter().skip(1).collect();
-                    match Self::new(&include_path, find_mats_path) {
-                        Some(vmt_info) => {
-                            vmt_info.download_with_def_keys(find_mats_path, output_mats_path);
-                        },
-                        None => {},
-                    }
-                },
-                None => {},
-            };
+            if let Some(include_path_str) = vmt_data_ptr.get("include") {
+                let include_path: PathBuf = Path::new(&include_path_str).iter().skip(1).collect();
+                if let Some(vmt_info) = Self::new(&include_path, find_mats_path) {
+                    vmt_info.download_with_def_keys(find_mats_path, output_mats_path);
+                }
+            }
         }
 
         pub fn download(&self, find_mats_path: &Path, output_mats_path: &Path, keys: &Vec<&str>) {
